@@ -1,0 +1,64 @@
+name: Generate Market Reports
+
+on:
+  schedule:
+    # pre-market: 08:00 BRT = 11:00 UTC
+    - cron: '0 11 * * 1-5'
+    # midday: 11:00 BRT = 14:00 UTC
+    - cron: '0 14 * * 1-5'
+    # closing: 18:00 BRT = 21:00 UTC
+    - cron: '0 21 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      type:
+        description: 'Report type'
+        required: true
+        default: 'pre-market'
+        type: choice
+        options:
+          - pre-market
+          - midday
+          - closing
+
+jobs:
+  generate:
+    name: Generate ${{ github.event.inputs.type || 'scheduled' }} report
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Determine report type from schedule
+        id: report-type
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "type=${{ github.event.inputs.type }}" >> $GITHUB_OUTPUT
+          else
+            HOUR=$(date -u +%H)
+            if [ "$HOUR" = "11" ]; then
+              echo "type=pre-market" >> $GITHUB_OUTPUT
+            elif [ "$HOUR" = "14" ]; then
+              echo "type=midday" >> $GITHUB_OUTPUT
+            else
+              echo "type=closing" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Call generate-report API
+        run: |
+          HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -d '{"type":"${{ steps.report-type.outputs.type }}"}' \
+            "${{ secrets.APP_URL }}/api/generate-report")
+          
+          echo "HTTP status: $HTTP_STATUS"
+          echo "Response:"
+          cat /tmp/response.json
+          
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "❌ Report generation failed with status $HTTP_STATUS"
+            exit 1
+          fi
+          
+          echo "✅ Report generated successfully"
