@@ -43,18 +43,24 @@ const RESPONSE_SCHEMA = {
 }
 
 // ─── Gemini call with retry ─────────────────────────────────────────────────
+// GEMINI_SEARCH_GROUNDING gates the paid `google_search` grounding tool.
+// Free-tier Gemini quota is $0 only for Flash models AND only without that tool
+// (confirmed live against this project on 2026-09-04 — Pro models return 0 free
+// quota regardless of grounding, and Flash + grounding also requires billing).
+// Leave unset/"false" to run entirely on the free tier while no billing is set up.
 async function callGemini(promptText: string, retries = 2) {
   const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! })
+  const groundingEnabled = process.env.GEMINI_SEARCH_GROUNDING === 'true'
 
-  // Try to find the best available Gemini model
-  // Confirmed against this project's live model list on 2026-09-03 — verify again if generation starts failing,
-  // model names/aliases change frequently (see AGENTS.md).
-  const CANDIDATE_MODELS = [
-    'gemini-3.1-pro-preview',
-    'gemini-pro-latest',
-    'gemini-3-flash-preview',
-    'gemini-flash-latest',
-  ]
+  // Confirmed against this project's live model list on 2026-09-04 — verify again if generation
+  // starts failing, model names/aliases change frequently (see AGENTS.md).
+  const CANDIDATE_MODELS = groundingEnabled
+    ? ['gemini-3.1-pro-preview', 'gemini-pro-latest', 'gemini-3-flash-preview', 'gemini-flash-latest']
+    : ['gemini-flash-latest', 'gemini-3-flash-preview']
+
+  const effectivePrompt = groundingEnabled
+    ? promptText
+    : `${promptText}\n\nAVISO IMPORTANTE: você NÃO tem acesso à busca na web nesta chamada — baseie-se apenas no seu conhecimento geral, sem fingir que tem dados de hoje. É TERMINANTEMENTE PROIBIDO citar nomes de veículos de imprensa (Bloomberg, WSJ, etc.), horários específicos ou números/cotações como se fossem reais ou "simulados" — isso engana o leitor mesmo com o rótulo. Fale em termos qualitativos e gerais (tendências típicas, sem valores/horários/fontes inventados). No campo "sources" retorne lista vazia. Comece cada seção com a frase literal "[SEM BUSCA EM TEMPO REAL]".`
 
   let lastError: Error | null = null
 
@@ -63,9 +69,9 @@ async function callGemini(promptText: string, retries = 2) {
       try {
         const response = await genai.models.generateContent({
           model,
-          contents: promptText,
+          contents: effectivePrompt,
           config: {
-            tools: [{ googleSearch: {} }],
+            ...(groundingEnabled ? { tools: [{ googleSearch: {} }] } : {}),
             responseMimeType: 'application/json',
             responseSchema: RESPONSE_SCHEMA,
             temperature: 0.7,
