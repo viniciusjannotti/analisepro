@@ -5,9 +5,10 @@ import { FieldValue } from 'firebase-admin/firestore'
 import { ReportType, TacticalRow } from '@/lib/types'
 import { sendEmailNotification } from '@/lib/notifications/email'
 import { sendPushNotifications } from '@/lib/notifications/push'
+import { collectMarketData } from '@/lib/collectors'
 
 export const runtime = 'nodejs'
-export const maxDuration = 120
+export const maxDuration = 180 // increased from 120 to account for data collection phase
 
 // ─── Auth helper ───────────────────────────────────────────────────────────
 function isAuthorized(req: NextRequest): boolean {
@@ -43,24 +44,13 @@ const RESPONSE_SCHEMA = {
 }
 
 // ─── Gemini call with retry ─────────────────────────────────────────────────
-// GEMINI_SEARCH_GROUNDING gates the paid `google_search` grounding tool.
-// Free-tier Gemini quota is $0 only for Flash models AND only without that tool
-// (confirmed live against this project on 2026-09-04 — Pro models return 0 free
-// quota regardless of grounding, and Flash + grounding also requires billing).
-// Leave unset/"false" to run entirely on the free tier while no billing is set up.
-async function callGemini(promptText: string, retries = 2) {
+// No grounding tool — all market data is pre-collected and injected in the prompt.
+// Only uses Flash models (free tier compatible).
+async function callGemini(promptText: string, marketContext: string, retries = 2) {
   const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! })
-  const groundingEnabled = process.env.GEMINI_SEARCH_GROUNDING === 'true'
+  const CANDIDATE_MODELS = ['gemini-flash-latest', 'gemini-3-flash-preview']
 
-  // Confirmed against this project's live model list on 2026-09-04 — verify again if generation
-  // starts failing, model names/aliases change frequently (see AGENTS.md).
-  const CANDIDATE_MODELS = groundingEnabled
-    ? ['gemini-3.1-pro-preview', 'gemini-pro-latest', 'gemini-3-flash-preview', 'gemini-flash-latest']
-    : ['gemini-flash-latest', 'gemini-3-flash-preview']
-
-  const effectivePrompt = groundingEnabled
-    ? promptText
-    : `${promptText}\n\nAVISO IMPORTANTE: você NÃO tem acesso à busca na web nesta chamada — baseie-se apenas no seu conhecimento geral, sem fingir que tem dados de hoje. É TERMINANTEMENTE PROIBIDO citar nomes de veículos de imprensa (Bloomberg, WSJ, etc.), horários específicos ou números/cotações como se fossem reais ou "simulados" — isso engana o leitor mesmo com o rótulo. Fale em termos qualitativos e gerais (tendências típicas, sem valores/horários/fontes inventados). No campo "sources" retorne lista vazia. Comece cada seção com a frase literal "[SEM BUSCA EM TEMPO REAL]".`
+  const effectivePrompt = `${promptText}\n\n${marketContext}`
 
   let lastError: Error | null = null
 
@@ -71,7 +61,6 @@ async function callGemini(promptText: string, retries = 2) {
           model,
           contents: effectivePrompt,
           config: {
-            ...(groundingEnabled ? { tools: [{ googleSearch: {} }] } : {}),
             responseMimeType: 'application/json',
             responseSchema: RESPONSE_SCHEMA,
             temperature: 0.7,
@@ -79,15 +68,6 @@ async function callGemini(promptText: string, retries = 2) {
         })
 
         const text = response.text ?? ''
-        const sources: string[] = []
-
-        // Extract grounding sources if available
-        const groundingMetadata = response.candidates?.[0]?.groundingMetadata
-        if (groundingMetadata?.groundingChunks) {
-          for (const chunk of groundingMetadata.groundingChunks) {
-            if (chunk?.web?.uri) sources.push(chunk.web.uri)
-          }
-        }
 
         // Parse JSON response (defensive)
         let parsed: {
@@ -110,7 +90,7 @@ async function callGemini(promptText: string, retries = 2) {
           throw new Error('Incomplete response structure from AI')
         }
 
-        return { parsed, sources, model }
+        return { parsed, model }
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err))
         console.warn(`[generate-report] Model ${model} attempt ${attempt + 1} failed:`, lastError.message)
@@ -152,10 +132,15 @@ export async function POST(req: NextRequest) {
   const reportId = reportRef.id
 
   try {
-    // 3. Call Gemini
-    const { parsed, sources, model } = await callGemini(promptText)
+    // 3. Collect market data from all sources (parallel)
+    console.log('[generate-report] Collecting market data from all sources...')
+    const { formattedContext, successfulSources, failedSources } = await collectMarketData()
+    console.log(`[generate-report] Data collected. OK: [${successfulSources.join(', ')}] | Failed: [${failedSources.join(', ')}]`)
 
-    // 4. Generate stable rowIds for each tactical row
+    // 4. Call Gemini with collected data injected in the prompt
+    const { parsed, model } = await callGemini(promptText, formattedContext)
+
+    // 5. Generate stable rowIds for each tactical row
     const tacticalTable: TacticalRow[] = parsed.tacticalTable.map((row, idx) => ({
       ...row,
       rowId: `${reportId}-${idx}`,
@@ -165,7 +150,11 @@ export async function POST(req: NextRequest) {
         : 'Compra',
     }))
 
-    // 5. Save report
+    // 6. Save report
+    const dataWarnings = failedSources.length > 0
+      ? `Fontes indisponíveis: ${failedSources.join(', ')}`
+      : null
+
     await reportRef.set({
       type,
       generatedAt: FieldValue.serverTimestamp(),
@@ -173,12 +162,13 @@ export async function POST(req: NextRequest) {
       calendarSection: parsed.calendarSection,
       hedgeSection: parsed.hedgeSection,
       tacticalTable,
-      sources,
+      sources: successfulSources,
       status: 'success',
       modelUsed: model,
+      ...(dataWarnings ? { dataWarnings } : {}),
     })
 
-    // 6. Dispatch notifications (non-blocking — don't fail the report if these fail)
+    // 7. Dispatch notifications (non-blocking — don't fail the report if these fail)
     try {
       const notifConfig = await adminDb.collection('config').doc('notifications').get()
       const config = notifConfig.data() ?? {}
@@ -199,7 +189,7 @@ export async function POST(req: NextRequest) {
       console.error('[generate-report] Notification dispatch failed:', notifErr)
     }
 
-    return Response.json({ success: true, reportId, model }, { status: 200 })
+    return Response.json({ success: true, reportId, model, dataWarnings }, { status: 200 })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[generate-report] Generation failed:', message)

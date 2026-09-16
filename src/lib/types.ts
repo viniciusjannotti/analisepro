@@ -23,6 +23,10 @@ export interface Report {
   sources: string[]
   status: 'success' | 'error'
   errorMessage?: string
+  /** Which model was used to generate the report */
+  modelUsed?: string
+  /** Warning when some data sources were unavailable during collection */
+  dataWarnings?: string
 }
 
 export interface PromptTemplate {
