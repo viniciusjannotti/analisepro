@@ -233,26 +233,33 @@ function formatMarketContext(snapshot: MarketSnapshot, failedSources: string[]):
 
 // ─── Formatting Helpers ─────────────────────────────────────────────────────
 
-function formatNum(n: number, decimals = 2): string {
+// Real-world quotes from brapi/Yahoo occasionally return null for thinly-traded
+// assets (a halted FII, an off-hours commodity) — every formatter below must
+// survive that instead of throwing and taking out the whole report.
+function formatNum(n: number | null | undefined, decimals = 2): string {
+  if (n == null || !Number.isFinite(n)) return 'N/D'
   return n.toLocaleString('pt-BR', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   })
 }
 
-function formatPct(n: number): string {
+function formatPct(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return 'N/D'
   const sign = n >= 0 ? '+' : ''
   return `${sign}${n.toFixed(2)}%`
 }
 
-function formatVolume(n: number): string {
+function formatVolume(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return 'N/D'
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
   return String(n)
 }
 
-function formatLargeNum(n: number): string {
+function formatLargeNum(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return 'N/D'
   if (n >= 1_000_000_000_000) return `$${(n / 1_000_000_000_000).toFixed(2)}T`
   if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`

@@ -33,14 +33,20 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "type=${{ github.event.inputs.type }}" >> $GITHUB_OUTPUT
           else
-            HOUR=$(date -u +%H)
-            if [ "$HOUR" = "11" ]; then
-              echo "type=pre-market" >> $GITHUB_OUTPUT
-            elif [ "$HOUR" = "14" ]; then
-              echo "type=midday" >> $GITHUB_OUTPUT
-            else
-              echo "type=closing" >> $GITHUB_OUTPUT
-            fi
+            # Match on which cron expression actually fired (github.event.schedule),
+            # not the wall-clock hour at execution time — GitHub's free-tier scheduler
+            # routinely delays runs by hours, so reading date -u +%H here mislabeled
+            # nearly every pre-market/midday run as "closing" once it fell past :00.
+            SCHEDULE="${{ github.event.schedule }}"
+            case "$SCHEDULE" in
+              "0 11 * * 1-5") echo "type=pre-market" >> $GITHUB_OUTPUT ;;
+              "0 14 * * 1-5") echo "type=midday" >> $GITHUB_OUTPUT ;;
+              "0 21 * * 1-5") echo "type=closing" >> $GITHUB_OUTPUT ;;
+              *)
+                echo "❌ Unrecognized schedule '$SCHEDULE' — refusing to guess a type"
+                exit 1
+                ;;
+            esac
           fi
 
       - name: Call generate-report API
