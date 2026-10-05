@@ -17,11 +17,15 @@ export async function gravarExecucao(asOfDate: string, r: ResultadoPipeline) {
   await limparSubcolecao(runRef.collection('reprovados'))
 
   const batch = adminDb.batch()
-  batch.set(runRef, {
-    ...r.execucao,
-    listaFinal: r.candidatos.map((c) => c.ticker),
-    criadoEm: FieldValue.serverTimestamp(),
-  })
+  batch.set(
+    runRef,
+    {
+      ...r.execucao,
+      listaFinal: r.candidatos.map((c) => c.ticker),
+      criadoEm: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  )
   for (const c of r.candidatos) {
     batch.set(runRef.collection('candidatos').doc(c.ticker), {
       ticker: c.ticker,
@@ -29,7 +33,7 @@ export async function gravarExecucao(asOfDate: string, r: ResultadoPipeline) {
       mapa: c.mapa,
       filtros: c.filtros,
       flags: c.flags,
-      narrativa: null,
+      narrativa: c.narrativa ?? null,
     })
   }
   for (const rep of r.reprovados) {

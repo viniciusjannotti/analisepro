@@ -2,12 +2,14 @@ import type { Candle, DataProvider } from './types'
 import { executarScreener, PARAMS_PADRAO, type FiltroResultado, type ScreenerParams } from './screener'
 import { analisarMapa, MAPA_PADRAO, type MapaPreco } from './mapa'
 import { montarRanking, RR_MINIMO, TOP_N_PADRAO, type CandidatoRankeado } from './ranking'
+import type { Narrativa } from './narrativa'
 
 export type StatusExecucao = 'ok' | 'parcial' | 'sem_novo_pregao' | 'erro'
 
 export interface CandidatoFinal extends CandidatoRankeado {
   filtros: FiltroResultado[]
   flags: string[]
+  narrativa?: Narrativa | null
 }
 
 export interface Reprovacao {

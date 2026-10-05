@@ -8,19 +8,22 @@ interface PushParams {
 }
 
 export async function sendPushNotifications({ reportId, reportType }: PushParams) {
+  const label = REPORT_LABELS[reportType]
+  await enviarPushParaTodos({
+    title: `${label.emoji} ${label.title}`,
+    body: 'Novo relatório de mercado disponível',
+    url: `/relatorio/${reportId}`,
+  })
+}
+
+export async function enviarPushParaTodos(notificacao: { title: string; body: string; url: string }) {
   webpush.setVapidDetails(
     'mailto:contato@analisepro.com',
     process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
     process.env.VAPID_PRIVATE_KEY!
   )
 
-  const label = REPORT_LABELS[reportType]
-  const payload = JSON.stringify({
-    title: `${label.emoji} ${label.title}`,
-    body: 'Novo relatório de mercado disponível',
-    url: `/relatorio/${reportId}`,
-    icon: '/icons/icon-192.png',
-  })
+  const payload = JSON.stringify({ ...notificacao, icon: '/icons/icon-192.png' })
 
   const snap = await adminDb.collection('pushSubscriptions').get()
   const promises = snap.docs.map(async (doc) => {

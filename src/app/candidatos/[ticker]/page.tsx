@@ -48,6 +48,7 @@ interface Candidato {
   mapa: Mapa
   filtros: Filtro[]
   flags: string[]
+  narrativa?: { resumo: string; cenarioFavoravel: string; cenarioInvalidacao: string; atencao: string } | null
 }
 
 const CAMINHO_TEXTO: Record<string, string> = {
@@ -188,6 +189,17 @@ function Conteudo() {
           <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Alertas: {candidato.flags.join('; ')}</p>
         )}
       </div>
+
+      {candidato.narrativa && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <h3 style={{ marginTop: 0 }}>Leitura do mapa</h3>
+          <p>{candidato.narrativa.resumo}</p>
+          <p><strong>Cenário favorável:</strong> {candidato.narrativa.cenarioFavoravel}</p>
+          <p><strong>Cenário de invalidação:</strong> {candidato.narrativa.cenarioInvalidacao}</p>
+          <p><strong>Atenção:</strong> {candidato.narrativa.atencao}</p>
+          <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Texto gerado por IA a partir dos números calculados acima.</p>
+        </div>
+      )}
 
       <div className="card" style={{ marginTop: 16 }}>
         <h3 style={{ marginTop: 0 }}>
