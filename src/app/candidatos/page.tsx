@@ -2,16 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import {
-  collection,
-  doc,
-  documentId,
-  getDocs,
-  limit,
-  onSnapshot,
-  orderBy,
-  query,
-} from 'firebase/firestore'
+import { collection, doc, getDocs, onSnapshot } from 'firebase/firestore'
 import { db } from '@/lib/firebase-client'
 import { Tooltip } from '@/components/Tooltip'
 
@@ -91,6 +82,7 @@ export default function CandidatosPage() {
   const [execucao, setExecucao] = useState<Execucao | null>(null)
   const [candidatos, setCandidatos] = useState<Candidato[]>([])
   const [carregado, setCarregado] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
   const [reprovadosCarregados, setReprovadosCarregados] = useState<{
     data: string
     lista: Array<{ ticker: string; motivos: string[] }>
@@ -99,13 +91,19 @@ export default function CandidatosPage() {
     reprovadosCarregados && reprovadosCarregados.data === dataSel ? reprovadosCarregados.lista : null
 
   useEffect(() => {
-    const q = query(collection(db, 'screenerRuns'), orderBy(documentId(), 'desc'), limit(15))
-    return onSnapshot(q, (snap) => {
-      const ids = snap.docs.map((d) => d.id)
-      setDatas(ids)
-      setCarregado(true)
-      setDataSel((atual) => atual ?? ids[0] ?? null)
-    })
+    return onSnapshot(
+      collection(db, 'screenerRuns'),
+      (snap) => {
+        const ids = snap.docs.map((d) => d.id).sort((a, b) => b.localeCompare(a)).slice(0, 15)
+        setDatas(ids)
+        setCarregado(true)
+        setDataSel((atual) => atual ?? ids[0] ?? null)
+      },
+      () => {
+        setErro('Não foi possível carregar as execuções.')
+        setCarregado(true)
+      }
+    )
   }, [])
 
   useEffect(() => {
@@ -113,10 +111,14 @@ export default function CandidatosPage() {
     const unsubRun = onSnapshot(doc(db, 'screenerRuns', dataSel), (snap) => {
       setExecucao(snap.exists() ? (snap.data() as Execucao) : null)
     })
-    const q = query(collection(db, 'screenerRuns', dataSel, 'candidatos'), orderBy('indiceTriagem', 'desc'))
-    const unsubCand = onSnapshot(q, (snap) => {
-      setCandidatos(snap.docs.map((d) => d.data() as Candidato))
-    })
+    const unsubCand = onSnapshot(
+      collection(db, 'screenerRuns', dataSel, 'candidatos'),
+      (snap) => {
+        const lista = snap.docs.map((d) => d.data() as Candidato)
+        setCandidatos(lista.sort((a, b) => b.indiceTriagem - a.indiceTriagem))
+      },
+      () => setErro('Não foi possível carregar os candidatos desta data.')
+    )
     return () => {
       unsubRun()
       unsubCand()
@@ -146,6 +148,12 @@ export default function CandidatosPage() {
       <div className="disclaimer">
         Ferramenta de triagem e análise. Não constitui recomendação de investimento. Indicadores heurísticos, ainda não validados por backtest.
       </div>
+
+      {erro && (
+        <div className="card" style={{ color: 'var(--red)', marginBottom: 16 }}>
+          {erro} Verifique as regras de leitura do Firestore.
+        </div>
+      )}
 
       {!carregado ? (
         <div className="skeleton" style={{ height: 120 }} />
