@@ -11,6 +11,7 @@ export function Header() {
 
   const navItems = [
     { href: '/', label: 'Dashboard', emoji: '📊' },
+    { href: '/candidatos', label: 'Candidatos', emoji: '🎯' },
     { href: '/configuracoes', label: 'Configurações', emoji: '⚙️' },
   ]
 

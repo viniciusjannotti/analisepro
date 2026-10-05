@@ -1,0 +1,5 @@
+{
+  "crons": [
+    { "path": "/api/screener/run", "schedule": "0 21 * * 1-5" }
+  ]
+}

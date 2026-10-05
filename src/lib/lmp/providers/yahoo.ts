@@ -6,9 +6,10 @@ export class YahooProvider implements DataProvider {
     const { default: YahooFinance } = await import('yahoo-finance2')
     const yahoo = new YahooFinance({ suppressNotices: ['yahooSurvey'] })
 
+    const fimExclusivo = new Date(new Date(`${toDate}T00:00:00Z`).getTime() + 86_400_000).toISOString().slice(0, 10)
     const result = await yahoo.chart(`${ticker}.SA`, {
       period1: fromDate,
-      period2: toDate,
+      period2: fimExclusivo,
       interval: '1d',
       return: 'array',
     })

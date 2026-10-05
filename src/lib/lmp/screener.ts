@@ -155,6 +155,7 @@ export interface ExecucaoScreener {
   aprovadosEtapa1: number
   falhas: Array<{ ticker: string; motivo: string }>
   resultados: ResultadoAtivo[]
+  candles: Map<string, Candle[]>
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -200,6 +201,7 @@ export async function executarScreener(args: {
 
   const resultados: ResultadoAtivo[] = []
   const falhas: Array<{ ticker: string; motivo: string }> = []
+  const candlesPorTicker = new Map<string, Candle[]>()
   let indice = 0
 
   const worker = async () => {
@@ -207,6 +209,7 @@ export async function executarScreener(args: {
       const ticker = args.universo[indice++]
       try {
         const candles = await buscarComRetry(args.provider, ticker, from, args.asOfDate, tentativas, backoffMs)
+        candlesPorTicker.set(ticker, candles)
         resultados.push(avaliarAtivo(ticker, candles, args.asOfDate, params))
       } catch (err) {
         falhas.push({ ticker, motivo: err instanceof Error ? err.message : String(err) })
@@ -224,5 +227,6 @@ export async function executarScreener(args: {
     aprovadosEtapa1: resultados.filter((r) => r.aprovado).length,
     falhas,
     resultados,
+    candles: candlesPorTicker,
   }
 }
